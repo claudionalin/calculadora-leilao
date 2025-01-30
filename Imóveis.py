@@ -77,9 +77,9 @@ class CalculadoraLeilao:
     
     def _calcular_custos_iptu(self, valor_iptu):
         """Calcula o custo total do IPTU durante o período de espera"""
-        return (valor_iptu / 12) * self.meses_ate_venda
+        return valor_iptu * self.meses_ate_venda
     
-    def calcular_viabilidade(self, valor_lance, valor_mercado, valor_condominio, meses_ate_venda, valor_iptu):
+    def calcular_viabilidade(self, valor_lance, valor_mercado, valor_condominio, meses_ate_venda, valor_iptu, arrematantes=None):
         """Analisa a viabilidade do negócio"""
         custos = self.calcular_custos_totais(valor_lance, valor_mercado, valor_condominio, meses_ate_venda, valor_iptu)
         custo_total = sum(custos.values())
@@ -88,6 +88,10 @@ class CalculadoraLeilao:
         lucro_bruto = valor_mercado - custo_total
         imposto_ganho_capital = lucro_bruto * 0.15 if lucro_bruto > 0 else 0
         lucro_liquido = lucro_bruto - imposto_ganho_capital
+        
+        # Novos indicadores de eficiência
+        margem_liquida = (lucro_liquido / valor_mercado) * 100 if valor_mercado > 0 else 0
+        retorno_sobre_custo = (lucro_liquido / custo_total) * 100 if custo_total > 0 else 0
         
         # Cálculo da rentabilidade
         rentabilidade = (lucro_liquido / custo_total) * 100 if custo_total > 0 else 0
@@ -111,6 +115,41 @@ class CalculadoraLeilao:
         
         roi = (lucro_liquido / custo_total) * 100 if custo_total > 0 else 0
         
+        # Cálculo por arrematante
+        resultados_arrematantes = []
+        if arrematantes:
+            for arr in arrematantes:
+                participacao = arr['participacao'] / 100
+                
+                # Cálculo do investimento (participação em todos os custos)
+                investimento_lance = valor_lance * participacao
+                outros_custos = (custo_total - valor_lance) * participacao
+                investimento_total = investimento_lance + outros_custos
+                
+                # Cálculo do retorno (participação no valor de mercado menos impostos)
+                retorno_bruto = valor_mercado * participacao
+                imposto_proporcional = imposto_ganho_capital * participacao
+                retorno_liquido = retorno_bruto - imposto_proporcional
+                
+                # Cálculo do lucro individual
+                lucro_individual = retorno_liquido - investimento_total
+                
+                # Cálculo do ROI individual
+                roi_individual = (lucro_individual / investimento_total * 100) if investimento_total > 0 else 0
+                
+                resultados_arrematantes.append({
+                    'id': arr['id'],
+                    'participacao': arr['participacao'],
+                    'investimento_lance': investimento_lance,
+                    'outros_custos': outros_custos,
+                    'investimento_total': investimento_total,
+                    'retorno_bruto': retorno_bruto,
+                    'imposto': imposto_proporcional,
+                    'retorno_liquido': retorno_liquido,
+                    'lucro': lucro_individual,
+                    'roi': roi_individual
+                })
+        
         return {
             'custo_total': custo_total,
             'lucro_bruto': lucro_bruto,
@@ -122,7 +161,49 @@ class CalculadoraLeilao:
             'tir_anual': tir_anual,
             'payback': payback,
             'roi': roi,
-            'detalhamento_custos': custos
+            'margem_liquida': margem_liquida,
+            'retorno_sobre_custo': retorno_sobre_custo,
+            'detalhamento_custos': custos,
+            'resultados_arrematantes': resultados_arrematantes
+        }
+
+    def calcular_pontos_vpl(self, valor_lance_base, valor_mercado, valor_condominio, meses_ate_venda, valor_iptu):
+        """Calcula pontos para o gráfico do VPL"""
+        pontos = []
+        # Calcula VPL para valores de lance de 50% a 150% do valor base
+        for percentual in range(50, 151, 5):  # De 50% a 150% em steps de 5%
+            valor_lance_temp = valor_lance_base * (percentual / 100)
+            resultado = self.calcular_viabilidade(
+                valor_lance_temp,
+                valor_mercado,
+                valor_condominio,
+                meses_ate_venda,
+                valor_iptu
+            )
+            pontos.append({
+                'valor_lance': valor_lance_temp,
+                'vpl': resultado['vpl']
+            })
+        
+        # Encontrar o ponto onde VPL = 0 (interpolação linear)
+        ponto_zero = None
+        for i in range(len(pontos)-1):
+            if (pontos[i]['vpl'] >= 0 and pontos[i+1]['vpl'] <= 0) or \
+               (pontos[i]['vpl'] <= 0 and pontos[i+1]['vpl'] >= 0):
+                # Interpolação linear
+                x1, y1 = pontos[i]['valor_lance'], pontos[i]['vpl']
+                x2, y2 = pontos[i+1]['valor_lance'], pontos[i+1]['vpl']
+                # Fórmula: x = x1 + (0 - y1) * (x2 - x1) / (y2 - y1)
+                valor_lance_zero = x1 + (0 - y1) * (x2 - x1) / (y2 - y1)
+                ponto_zero = {
+                    'valor_lance': valor_lance_zero,
+                    'vpl': 0
+                }
+                break
+        
+        return {
+            'pontos': pontos,
+            'ponto_zero': ponto_zero
         }
 
 def exibir_cabecalho():
