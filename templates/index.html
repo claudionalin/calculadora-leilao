@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Calculadora de Viabilidade - Leilão de Imóveis</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --primary-color: #2c3e50;
@@ -132,6 +133,48 @@
             padding-bottom: 5px;
             border-bottom: 2px solid var(--secondary-color);
         }
+
+        .arrematante {
+            background: var(--light-gray);
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+        
+        .arrematante h4 {
+            color: var(--primary-color);
+            margin-bottom: 10px;
+        }
+
+        #arrematantes-container {
+            margin: 20px 0;
+        }
+
+        .arrematante {
+            background: var(--light-gray);
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .indicador strong.entrada {
+            color: var(--success-color) !important;
+        }
+        
+        .indicador strong.saida {
+            color: var(--danger-color) !important;
+        }
+
+        .info-vpl-zero {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            text-align: center;
+            color: var(--primary-color);
+            font-weight: 500;
+        }
     </style>
 </head>
 <body>
@@ -164,7 +207,22 @@
                         <label>Tempo até Venda (meses)</label>
                         <input type="number" id="meses_ate_venda" required min="1" step="1">
                     </div>
+                    <div class="form-group">
+                        <label>Número de Arrematantes</label>
+                        <input type="number" id="num_arrematantes" value="1" min="1" max="10" onchange="atualizarArrematantes()">
+                    </div>
                 </div>
+                
+                <div id="arrematantes-container">
+                    <div class="arrematante" data-id="1">
+                        <h4>Arrematante 1</h4>
+                        <div class="form-group">
+                            <label>Participação (%)</label>
+                            <input type="number" class="participacao" required min="0" max="100" value="100" step="0.01">
+                        </div>
+                    </div>
+                </div>
+
                 <button type="submit">Calcular Viabilidade</button>
             </form>
         </div>
@@ -190,6 +248,11 @@
                     <h3 class="section-title">Detalhamento dos Custos</h3>
                     <div id="detalhamento-custos"></div>
                 </div>
+
+                <div class="card">
+                    <h3 class="section-title">Indicadores de Eficiência</h3>
+                    <div id="indicadores-eficiencia"></div>
+                </div>
             </div>
 
             <div class="card">
@@ -197,43 +260,212 @@
                 <div id="analise-viabilidade"></div>
                 <div id="recomendacao"></div>
             </div>
+
+            <div class="card">
+                <h3 class="section-title">Resultados por Arrematante</h3>
+                <div id="resultados-arrematantes" class="grid"></div>
+            </div>
+
+            <div class="card">
+                <h3 class="section-title">Análise VPL</h3>
+                <canvas id="vplChart"></canvas>
+            </div>
         </div>
     </div>
 
     <script>
-        function formatarMoeda(valor) {
-            return new Intl.NumberFormat('pt-BR', {
+        function formatarMoeda(valor, tipo = null) {
+            const valorFormatado = Math.abs(valor); // Sempre positivo
+            const formatado = new Intl.NumberFormat('pt-BR', {
                 style: 'currency',
                 currency: 'BRL'
-            }).format(valor);
+            }).format(valorFormatado);
+            
+            // Retornamos apenas o texto formatado, a classe será aplicada no elemento pai
+            return formatado;
         }
 
         function formatarPorcentagem(valor) {
             return `${valor.toFixed(2)}%`;
         }
 
-        function criarIndicador(label, valor, formato = 'moeda') {
+        function criarIndicador(label, valor, formato = 'moeda', tipo = null) {
             const div = document.createElement('div');
             div.className = 'indicador';
-            div.innerHTML = `
-                <span>${label}</span>
-                <strong>${formato === 'moeda' ? formatarMoeda(valor) : 
-                         formato === 'porcentagem' ? formatarPorcentagem(valor) :
-                         valor}</strong>
-            `;
+            
+            let valorFormatado;
+            if (formato === 'moeda') {
+                valorFormatado = formatarMoeda(valor);
+                const classeTipo = tipo === 'saida' ? 'saida' : tipo === 'entrada' ? 'entrada' : '';
+                div.innerHTML = `
+                    <span>${label}</span>
+                    <strong class="${classeTipo}">${valorFormatado}</strong>
+                `;
+            } else {
+                valorFormatado = formato === 'porcentagem' ? formatarPorcentagem(valor) : valor;
+                div.innerHTML = `
+                    <span>${label}</span>
+                    <strong>${valorFormatado}</strong>
+                `;
+            }
             return div;
+        }
+
+        function atualizarArrematantes() {
+            const container = document.getElementById('arrematantes-container');
+            const numArrematantes = parseInt(document.getElementById('num_arrematantes').value);
+            
+            // Limpar container mantendo apenas os arrematantes necessários
+            while (container.children.length > numArrematantes) {
+                container.removeChild(container.lastChild);
+            }
+            
+            // Adicionar novos arrematantes se necessário
+            while (container.children.length < numArrematantes) {
+                const id = container.children.length + 1;
+                const div = document.createElement('div');
+                div.className = 'arrematante';
+                div.dataset.id = id;
+                div.innerHTML = `
+                    <h4>Arrematante ${id}</h4>
+                    <div class="form-group">
+                        <label>Participação (%)</label>
+                        <input type="number" class="participacao" required min="0" max="100" value="${100/numArrematantes}" step="0.01">
+                    </div>
+                `;
+                container.appendChild(div);
+            }
+            
+            // Ajustar as participações automaticamente
+            const participacoes = container.querySelectorAll('.participacao');
+            const valorPadrao = 100 / numArrematantes;
+            participacoes.forEach(input => {
+                input.value = valorPadrao.toFixed(2);
+            });
+        }
+
+        function validarParticipacoes() {
+            const participacoes = Array.from(document.querySelectorAll('.participacao'))
+                .map(input => parseFloat(input.value));
+            
+            const soma = participacoes.reduce((a, b) => a + b, 0);
+            
+            if (Math.abs(soma - 100) > 0.01) {  // Permitindo uma pequena margem de erro
+                alert('A soma das participações deve ser 100%');
+                return false;
+            }
+            return true;
+        }
+
+        let vplChart = null;  // Variável global para o gráfico
+
+        function criarGraficoVPL(dados) {
+            const ctx = document.getElementById('vplChart').getContext('2d');
+            
+            // Destruir gráfico anterior se existir
+            if (vplChart) {
+                vplChart.destroy();
+            }
+            
+            const pontos = dados.grafico_vpl.pontos;
+            const pontoZero = dados.grafico_vpl.ponto_zero;
+            
+            const labels = pontos.map(p => formatarMoeda(p.valor_lance));
+            const valores = pontos.map(p => p.vpl);
+            
+            vplChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'VPL',
+                        data: valores,
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Curva do VPL em função do Valor do Lance'
+                        },
+                        annotation: {
+                            annotations: {
+                                line1: {
+                                    type: 'line',
+                                    yMin: 0,
+                                    yMax: 0,
+                                    borderColor: 'rgb(255, 99, 132)',
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: {
+                                        content: 'VPL = 0',
+                                        enabled: true
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'VPL (R$)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Valor do Lance'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Adicionar informação do ponto onde VPL = 0
+            if (pontoZero) {
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'info-vpl-zero';
+                infoDiv.innerHTML = `
+                    <p>VPL igual a zero quando o lance for ${formatarMoeda(pontoZero.valor_lance)}</p>
+                `;
+                document.getElementById('vplChart').parentNode.appendChild(infoDiv);
+            }
         }
 
         document.getElementById('calculadora-form').addEventListener('submit', async (e) => {
             e.preventDefault();
+
+            if (!validarParticipacoes()) {
+                return;
+            }
+
+            // Coletar dados dos arrematantes
+            const arrematantes = [];
+            document.querySelectorAll('.arrematante').forEach(div => {
+                const arrematante = {
+                    id: div.dataset.id,
+                    participacao: parseFloat(div.querySelector('.participacao').value)
+                };
+                arrematantes.push(arrematante);
+                console.log('Arrematante adicionado:', arrematante);  // Debug
+            });
 
             const dados = {
                 valor_lance: document.getElementById('valor_lance').value,
                 valor_mercado: document.getElementById('valor_mercado').value,
                 valor_condominio: document.getElementById('valor_condominio').value,
                 valor_iptu: document.getElementById('valor_iptu').value,
-                meses_ate_venda: document.getElementById('meses_ate_venda').value
+                meses_ate_venda: document.getElementById('meses_ate_venda').value,
+                arrematantes: arrematantes
             };
+
+            console.log('Dados completos:', dados);  // Debug
 
             try {
                 const response = await fetch('/calcular', {
@@ -244,7 +476,10 @@
                     body: JSON.stringify(dados)
                 });
 
+                console.log('Resposta recebida:', response);  // Debug
+
                 const resultado = await response.json();
+                console.log('Dados recebidos:', resultado);  // Debug
 
                 if (response.ok) {
                     document.getElementById('resultado').style.display = 'block';
@@ -252,16 +487,16 @@
                     // Resumo do Investimento
                     const resumoDiv = document.getElementById('resumo-investimento');
                     resumoDiv.innerHTML = '';
-                    resumoDiv.appendChild(criarIndicador('Valor do Lance', resultado.detalhamento_custos.lance));
-                    resumoDiv.appendChild(criarIndicador('Valor de Mercado', resultado.valor_mercado));
+                    resumoDiv.appendChild(criarIndicador('Valor do Lance', resultado.detalhamento_custos.lance, 'moeda', 'saida'));
+                    resumoDiv.appendChild(criarIndicador('Valor de Mercado', resultado.valor_mercado, 'moeda', 'entrada'));
 
                     // Custos e Resultados
                     const custosDiv = document.getElementById('custos-resultados');
                     custosDiv.innerHTML = '';
-                    custosDiv.appendChild(criarIndicador('Custo Total', resultado.custo_total));
-                    custosDiv.appendChild(criarIndicador('Lucro Bruto', resultado.lucro_bruto));
-                    custosDiv.appendChild(criarIndicador('Imposto (Ganho Capital)', resultado.imposto_ganho_capital));
-                    custosDiv.appendChild(criarIndicador('Lucro Líquido', resultado.lucro_liquido));
+                    custosDiv.appendChild(criarIndicador('Custo Total', resultado.custo_total, 'moeda', 'saida'));
+                    custosDiv.appendChild(criarIndicador('Lucro Bruto', resultado.lucro_bruto, 'moeda', 'entrada'));
+                    custosDiv.appendChild(criarIndicador('Imposto (Ganho Capital)', resultado.imposto_ganho_capital, 'moeda', 'saida'));
+                    custosDiv.appendChild(criarIndicador('Lucro Líquido', resultado.lucro_liquido, 'moeda', 'entrada'));
 
                     // Indicadores de Rentabilidade
                     const indicadoresDiv = document.getElementById('indicadores-rentabilidade');
@@ -277,10 +512,17 @@
                     // Detalhamento dos Custos
                     const detalhamentoDiv = document.getElementById('detalhamento-custos');
                     detalhamentoDiv.innerHTML = '';
-                    for (const [item, valor] of Object.entries(resultado.detalhamento_custos)) {
+
+                    // Criar array de pares [item, valor] e ordenar por valor (decrescente)
+                    const custosOrdenados = Object.entries(resultado.detalhamento_custos)
+                        .sort((a, b) => b[1] - a[1]);
+
+                    for (const [item, valor] of custosOrdenados) {
                         detalhamentoDiv.appendChild(criarIndicador(
                             item.replace('_', ' ').charAt(0).toUpperCase() + item.slice(1),
-                            valor
+                            valor,
+                            'moeda',
+                            'saida'
                         ));
                     }
 
@@ -313,6 +555,72 @@
                             ${recomendacaoTexto}
                         </div>
                     `;
+
+                    // Adicionar seção de indicadores de eficiência
+                    const eficienciaDiv = document.getElementById('indicadores-eficiencia');
+                    eficienciaDiv.innerHTML = '';
+                    eficienciaDiv.appendChild(criarIndicador('Margem Líquida', resultado.margem_liquida, 'porcentagem'));
+                    eficienciaDiv.appendChild(criarIndicador('Retorno sobre Custo', resultado.retorno_sobre_custo, 'porcentagem'));
+                    
+                    // Adicionar resultados por arrematante
+                    const arrematantesDiv = document.getElementById('resultados-arrematantes');
+                    arrematantesDiv.innerHTML = '';
+
+                    console.log('Resultados arrematantes:', resultado.resultados_arrematantes); // Debug
+
+                    if (resultado.resultados_arrematantes && resultado.resultados_arrematantes.length > 0) {
+                        resultado.resultados_arrematantes.forEach(arr => {
+                            console.log('Processando arrematante:', arr); // Debug
+                            const arrDiv = document.createElement('div');
+                            arrDiv.className = 'card';
+                            arrDiv.innerHTML = `
+                                <h4>Arrematante ${arr.id}</h4>
+                                <div class="indicador">
+                                    <span>Participação</span>
+                                    <strong>${arr.participacao.toFixed(2)}%</strong>
+                                </div>
+                                <div class="indicador">
+                                    <span>Investimento no Lance</span>
+                                    <strong class="saida">${formatarMoeda(arr.investimento_lance)}</strong>
+                                </div>
+                                <div class="indicador">
+                                    <span>Outros Custos</span>
+                                    <strong class="saida">${formatarMoeda(arr.outros_custos)}</strong>
+                                </div>
+                                <div class="indicador">
+                                    <span>Investimento Total</span>
+                                    <strong class="saida">${formatarMoeda(arr.investimento_total)}</strong>
+                                </div>
+                                <div class="indicador">
+                                    <span>Retorno Bruto</span>
+                                    <strong class="entrada">${formatarMoeda(arr.retorno_bruto)}</strong>
+                                </div>
+                                <div class="indicador">
+                                    <span>Imposto</span>
+                                    <strong class="saida">${formatarMoeda(arr.imposto)}</strong>
+                                </div>
+                                <div class="indicador">
+                                    <span>Retorno Líquido</span>
+                                    <strong class="entrada">${formatarMoeda(arr.retorno_liquido)}</strong>
+                                </div>
+                                <div class="indicador">
+                                    <span>Lucro</span>
+                                    <strong class="entrada">${formatarMoeda(arr.lucro)}</strong>
+                                </div>
+                                <div class="indicador">
+                                    <span>ROI Individual</span>
+                                    <strong>${formatarPorcentagem(arr.roi)}</strong>
+                                </div>
+                            `;
+                            arrematantesDiv.appendChild(arrDiv);
+                        });
+                    } else {
+                        console.log('Nenhum resultado de arrematante encontrado'); // Debug
+                        arrematantesDiv.innerHTML = '<p>Nenhum resultado de arrematante disponível</p>';
+                    }
+
+                    // Criar gráfico VPL
+                    criarGraficoVPL(resultado);
                 }
             } catch (error) {
                 console.error('Erro:', error);
