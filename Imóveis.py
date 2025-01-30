@@ -9,7 +9,7 @@ class CalculadoraLeilao:
         self.meses_ate_venda = 0
         self.taxa_selic = 0.1375  # Taxa Selic atual (13,75% ao ano)
         
-    def calcular_custos_totais(self, valor_lance, valor_mercado, valor_condominio, meses_ate_venda):
+    def calcular_custos_totais(self, valor_lance, valor_mercado, valor_condominio, meses_ate_venda, valor_iptu):
         """Calcula todos os custos envolvidos na aquisição do imóvel em leilão"""
         self.valor_lance = valor_lance
         self.valor_mercado = valor_mercado
@@ -24,7 +24,8 @@ class CalculadoraLeilao:
             'regularizacao': self._calcular_custos_regularizacao(),
             'advogado': self._calcular_honorarios_advogado(),
             'vistoria': 1500.00,  # Valor médio para vistoria técnica
-            'condominio': self._calcular_custos_condominio(valor_condominio)
+            'condominio': self._calcular_custos_condominio(valor_condominio),
+            'iptu': self._calcular_custos_iptu(valor_iptu)  # Novo custo de IPTU
         }
         
         return custos
@@ -74,9 +75,13 @@ class CalculadoraLeilao:
                 return i
         return None
     
-    def calcular_viabilidade(self, valor_lance, valor_mercado, valor_condominio, meses_ate_venda):
+    def _calcular_custos_iptu(self, valor_iptu):
+        """Calcula o custo total do IPTU durante o período de espera"""
+        return (valor_iptu / 12) * self.meses_ate_venda
+    
+    def calcular_viabilidade(self, valor_lance, valor_mercado, valor_condominio, meses_ate_venda, valor_iptu):
         """Analisa a viabilidade do negócio"""
-        custos = self.calcular_custos_totais(valor_lance, valor_mercado, valor_condominio, meses_ate_venda)
+        custos = self.calcular_custos_totais(valor_lance, valor_mercado, valor_condominio, meses_ate_venda, valor_iptu)
         custo_total = sum(custos.values())
         
         # Cálculo do lucro líquido
@@ -92,11 +97,10 @@ class CalculadoraLeilao:
         
         # Fluxo de caixa considerando:
         # Mês 0: Investimento inicial (custos totais)
-        # Meses 1 a n-1: Pagamentos de condomínio
-        # Mês n: Venda do imóvel
+        # Meses 1 a n-1: Pagamentos de condomínio e IPTU mensal
         fluxo_caixa = [-custo_total]
         for _ in range(meses_ate_venda - 1):
-            fluxo_caixa.append(-valor_condominio)
+            fluxo_caixa.append(-(valor_condominio + (valor_iptu/12)))
         fluxo_caixa.append(valor_mercado - imposto_ganho_capital)
         
         # Cálculos financeiros avançados
@@ -217,10 +221,11 @@ def main():
     valor_lance = obter_input_numerico("Digite o valor do lance pretendido (R$): ")
     valor_mercado = obter_input_numerico("Digite o valor de mercado do imóvel (R$): ")
     valor_condominio = obter_input_numerico("Digite o valor mensal do condomínio (R$): ")
+    valor_iptu = obter_input_numerico("Digite o valor anual do IPTU (R$): ")
     meses_ate_venda = obter_input_numerico("Digite o tempo estimado até a venda (meses): ", tipo_numero='int')
     
-    resultado = calc.calcular_viabilidade(valor_lance, valor_mercado, valor_condominio, meses_ate_venda)
-    resultado['valor_mercado'] = valor_mercado  # Adicionando valor_mercado ao resultado
+    resultado = calc.calcular_viabilidade(valor_lance, valor_mercado, valor_condominio, meses_ate_venda, valor_iptu)
+    resultado['valor_mercado'] = valor_mercado
     
     exibir_resultados(resultado)
 
